@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. MySQL 8 Database Service
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: devtrack-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: devtrack_db
+      MYSQL_USER: devtrack_user
+      MYSQL_PASSWORD: devtrack_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/data.sql:/docker-entrypoint-initdb.d/02-data.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - devtrack-network
+
+  # ---------------------------------------------------------------------------
+  # 2. Spring Boot 3 Backend Service
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devtrack-backend
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/devtrack_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: rootpassword
+      CORS_ALLOWED_ORIGINS: http://localhost,http://localhost:80,http://localhost:3000,http://localhost:5173
+    ports:
+      - "8080:8080"
+    networks:
+      - devtrack-network
+
+  # ---------------------------------------------------------------------------
+  # 3. React Frontend Service (Nginx)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: devtrack-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "3000:80"
+    networks:
+      - devtrack-network
+
+networks:
+  devtrack-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
